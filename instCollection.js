@@ -1,4 +1,6 @@
+
 const { Instrument } = require('./instrument');
+const { findMinRoughnessFundamental } = require('./roughness');
 
 /**
  * InstCollection holds three Instrument instances: low, mid, high
@@ -15,6 +17,7 @@ class InstCollection {
         let fMid = midParams.fundamental;
         let fHigh = highParams.fundamental;
 
+
         // Create low instrument first
         this.low = new Instrument(
             fLow,
@@ -27,59 +30,93 @@ class InstCollection {
             lowParams.maxHarmonics || 32
         );
 
-        // Find overtone of low closest to mid fundamental, weighted by amplitude
-        const lowOvertones = this.low.absoluteSeries;
-        let bestMid = fMid;
-        let minDistMid = Infinity;
-        lowOvertones.forEach(ot => {
-            const dist = Math.abs(ot.frequency - fMid) / ot.amplitude;
-            if (dist < minDistMid) {
-                minDistMid = dist;
-                bestMid = ot.frequency;
-            }
-        });
-        fMid = bestMid;
+        // Use roughness minimization to select mid fundamental
+        const lowSeries = this.low.absoluteSeries;
+        const midSeriesTemplate = {
+            harmonicPurity: midParams.harmonicPurity,
+            spectralBalance: midParams.spectralBalance,
+            oddEvenBias: midParams.oddEvenBias,
+            formantStrength: midParams.formantStrength,
+            spectralRichness: midParams.spectralRichness,
+            irregularity: midParams.irregularity,
+            maxHarmonics: midParams.maxHarmonics || 32
+        };
+        // Generate a mid overtone series at the requested fundamental
+        const tempMid = new Instrument(
+            fMid,
+            midSeriesTemplate.harmonicPurity,
+            midSeriesTemplate.spectralBalance,
+            midSeriesTemplate.oddEvenBias,
+            midSeriesTemplate.formantStrength,
+            midSeriesTemplate.spectralRichness,
+            midSeriesTemplate.irregularity,
+            midSeriesTemplate.maxHarmonics
+        );
+        const midTemplateSeries = tempMid.absoluteSeries;
+        // Use roughness minimization
+        const midResult = findMinRoughnessFundamental(
+            midTemplateSeries,
+            [lowSeries],
+            { rangeOctaves: 0.5, granularityCents: 2, refineRangeCents: 20, refineGranularityCents: 0.2 }
+        );
+        fMid = midResult ? midResult.fundamental : fMid;
 
-        // Create mid instrument
+        // Create mid instrument at selected fundamental
         this.mid = new Instrument(
             fMid,
-            midParams.harmonicPurity,
-            midParams.spectralBalance,
-            midParams.oddEvenBias,
-            midParams.formantStrength,
-            midParams.spectralRichness,
-            midParams.irregularity,
-            midParams.maxHarmonics || 32
+            midSeriesTemplate.harmonicPurity,
+            midSeriesTemplate.spectralBalance,
+            midSeriesTemplate.oddEvenBias,
+            midSeriesTemplate.formantStrength,
+            midSeriesTemplate.spectralRichness,
+            midSeriesTemplate.irregularity,
+            midSeriesTemplate.maxHarmonics
         );
 
-        // Find overtone of mid closest to high fundamental, weighted by amplitude
-        const midOvertones = this.mid.absoluteSeries;
-        let bestHigh = fHigh;
-        let minDistHigh = Infinity;
-        midOvertones.forEach(ot => {
-            const dist = Math.abs(ot.frequency - fHigh) / ot.amplitude;
-            if (dist < minDistHigh) {
-                minDistHigh = dist;
-                bestHigh = ot.frequency;
-            }
-        });
-        fHigh = bestHigh;
+        // Use roughness minimization to select high fundamental
+        const midSeries = this.mid.absoluteSeries;
+        const highSeriesTemplate = {
+            harmonicPurity: highParams.harmonicPurity,
+            spectralBalance: highParams.spectralBalance,
+            oddEvenBias: highParams.oddEvenBias,
+            formantStrength: highParams.formantStrength,
+            spectralRichness: highParams.spectralRichness,
+            irregularity: highParams.irregularity,
+            maxHarmonics: highParams.maxHarmonics || 32
+        };
+        const tempHigh = new Instrument(
+            fHigh,
+            highSeriesTemplate.harmonicPurity,
+            highSeriesTemplate.spectralBalance,
+            highSeriesTemplate.oddEvenBias,
+            highSeriesTemplate.formantStrength,
+            highSeriesTemplate.spectralRichness,
+            highSeriesTemplate.irregularity,
+            highSeriesTemplate.maxHarmonics
+        );
+        const highTemplateSeries = tempHigh.absoluteSeries;
+        const highResult = findMinRoughnessFundamental(
+            highTemplateSeries,
+            [midSeries],
+            { rangeOctaves: 0.5, granularityCents: 2, refineRangeCents: 20, refineGranularityCents: 0.2 }
+        );
+        fHigh = highResult ? highResult.fundamental : fHigh;
 
         // Check fundamentals are ascending
         if (!(fLow < fMid && fMid < fHigh)) {
-            throw new Error('Fundamental frequencies must be strictly ascending after rounding: low < mid < high');
+            throw new Error('Fundamental frequencies must be strictly ascending after roughness selection: low < mid < high');
         }
 
-        // Create high instrument
+        // Create high instrument at selected fundamental
         this.high = new Instrument(
             fHigh,
-            highParams.harmonicPurity,
-            highParams.spectralBalance,
-            highParams.oddEvenBias,
-            highParams.formantStrength,
-            highParams.spectralRichness,
-            highParams.irregularity,
-            highParams.maxHarmonics || 32
+            highSeriesTemplate.harmonicPurity,
+            highSeriesTemplate.spectralBalance,
+            highSeriesTemplate.oddEvenBias,
+            highSeriesTemplate.formantStrength,
+            highSeriesTemplate.spectralRichness,
+            highSeriesTemplate.irregularity,
+            highSeriesTemplate.maxHarmonics
         );
     }
 
