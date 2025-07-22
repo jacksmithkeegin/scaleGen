@@ -6,6 +6,36 @@ const { findMinRoughnessFundamental } = require('./roughness');
  * InstCollection holds three Instrument instances: low, mid, high
  */
 class InstCollection {
+
+    /**
+     * Generate and store note frequencies for each instrument using roughness-based scale finding
+     * Stores: this.lowNotes, this.midNotes, this.highNotes
+     * @param {Object} options - Options for scale finding (minRatio, targetCount, etc)
+     */
+    generateScales(options = {}) {
+        const { findScale } = require('./roughness');
+
+        // Low instrument
+        this.lowNotes = findScale(
+            this.low.absoluteSeries,
+            [], // no secondary
+            options
+        );
+
+        // Mid instrument
+        this.midNotes = findScale(
+            this.mid.absoluteSeries,
+            [this.low.absoluteSeries],
+            options
+        );
+
+        // High instrument
+        this.highNotes = findScale(
+            this.high.absoluteSeries,
+            [this.mid.absoluteSeries],
+            options
+        );
+    }
     /**
      * @param {Object} lowParams - Params for low instrument (must include fundamental)
      * @param {Object} midParams - Params for mid instrument (must include fundamental)
