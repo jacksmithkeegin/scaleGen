@@ -35,8 +35,8 @@ function scanRoughness(primarySeries, secondarySeriesArr, options = {}) {
     const rangeOctaves = options.rangeOctaves || 2;
     const granularityCents = options.granularityCents || 5;
 
-    // Get current fundamental from primary series (lowest frequency)
-    const fundamental = Math.min(...primarySeries.map(ot => ot.frequency));
+    // Get current fundamental from primary series (lowest frequency) or use override
+    const fundamental = options.centerFundamental || Math.min(...primarySeries.map(ot => ot.frequency));
 
     // Range: center on fundamental, ±rangeOctaves/2
     const minFund = fundamental / Math.pow(2, rangeOctaves/2);
@@ -181,7 +181,30 @@ function findScale(primarySeries, secondarySeriesArr, options = {}) {
     const refineRangeCents = options.refineRangeCents || 20;
     const refineGranularityCents = options.refineGranularityCents || 0.5;
 
-    // Scan coarse curve
+    // Special case: if no secondary instruments, use overtone frequencies as scale
+    if (!secondarySeriesArr || secondarySeriesArr.length === 0) {
+        const fundamental = Math.min(...primarySeries.map(ot => ot.frequency));
+        const rangeMin = fundamental / Math.pow(2, rangeOctaves/2);
+        const rangeMax = fundamental * Math.pow(2, rangeOctaves/2);
+        
+        // Select overtones within the range, sorted by amplitude
+        let candidates = primarySeries
+            .filter(ot => ot.frequency >= rangeMin && ot.frequency <= rangeMax)
+            .sort((a, b) => b.amplitude - a.amplitude); // Sort by amplitude descending
+        
+        // Apply minimum ratio constraint
+        let selected = [];
+        for (const candidate of candidates) {
+            if (selected.length >= targetCount) break;
+            if (selected.every(sel => Math.max(candidate.frequency, sel) / Math.min(candidate.frequency, sel) >= minRatio)) {
+                selected.push(candidate.frequency);
+            }
+        }
+        
+        return selected.sort((a, b) => a - b); // Return sorted by frequency
+    }
+
+    // Normal case: scan for roughness minima
     const curve = scanRoughness(primarySeries, secondarySeriesArr, {
         rangeOctaves,
         granularityCents
@@ -199,6 +222,12 @@ function findScale(primarySeries, secondarySeriesArr, options = {}) {
         if (isLocalMin(i)) {
             localMinima.push(curve[i]);
         }
+    }
+
+    // If no local minima found, use global minima
+    if (localMinima.length === 0) {
+        const minRoughness = Math.min(...curve.map(pt => pt.totalRoughness));
+        localMinima = curve.filter(pt => pt.totalRoughness === minRoughness);
     }
 
     // Sort by roughness
@@ -244,7 +273,188 @@ function findScale(primarySeries, secondarySeriesArr, options = {}) {
     return refined;
 }
 
+/**
+ * Calculate total weighted roughness between all note pairs from distinct instruments
+ * @param {Array} instrumentCollection - Array of objects with {absoluteSeries, scaleNotes}
+ * @returns {number} Total weighted roughness
+ */
+function calculateCollectionRoughness(instrumentCollection) {
+    let totalRoughness = 0;
+    
+    // Helper function for threshold (same as in scanRoughness)
+    function getThreshold(f) {
+        const sharpness = 0.24 / (0.021 * f + 19);
+        return sharpness * 0.5;
+    }
+    
+    // For each pair of instruments
+    for (let i = 0; i < instrumentCollection.length; i++) {
+        for (let j = i + 1; j < instrumentCollection.length; j++) {
+            const inst1 = instrumentCollection[i];
+            const inst2 = instrumentCollection[j];
+            
+            // For each note pair between these instruments
+            for (const note1 of inst1.scaleNotes) {
+                for (const note2 of inst2.scaleNotes) {
+                    // Shift overtone series to these note frequencies
+                    const fund1 = Math.min(...inst1.absoluteSeries.map(ot => ot.frequency));
+                    const fund2 = Math.min(...inst2.absoluteSeries.map(ot => ot.frequency));
+                    
+                    const shifted1 = inst1.absoluteSeries.map(ot => ({
+                        frequency: ot.frequency * (note1 / fund1),
+                        amplitude: ot.amplitude
+                    }));
+                    const shifted2 = inst2.absoluteSeries.map(ot => ({
+                        frequency: ot.frequency * (note2 / fund2),
+                        amplitude: ot.amplitude
+                    }));
+                    
+                    // Calculate roughness between all overtone pairs within threshold
+                    const allOvertones1 = shifted1;
+                    const allOvertones2 = shifted2;
+                    
+                    for (const ot1 of allOvertones1) {
+                        for (const ot2 of allOvertones2) {
+                            const dist = Math.abs(ot1.frequency - ot2.frequency);
+                            const threshold = getThreshold(Math.min(ot1.frequency, ot2.frequency));
+                            if (dist <= threshold) {
+                                const r = roughness(ot1.frequency, ot2.frequency);
+                                totalRoughness += r * ot1.amplitude * ot2.amplitude;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return totalRoughness;
+}
+
+/**
+ * Calculate average roughness for each note in each instrument's scale
+ * @param {Array} instrumentCollection - Array of objects with {absoluteSeries, scaleNotes}
+ * @returns {Array} Array of objects with {instrumentIndex, noteFreq, avgRoughness}
+ */
+function calculateNoteRoughnessAverages(instrumentCollection) {
+    const noteRoughness = [];
+    
+    // Helper function for threshold (same as in scanRoughness)
+    function getThreshold(f) {
+        const sharpness = 0.24 / (0.021 * f + 19);
+        return sharpness * 0.5;
+    }
+    
+    // For each instrument
+    for (let instIdx = 0; instIdx < instrumentCollection.length; instIdx++) {
+        const inst = instrumentCollection[instIdx];
+        const fund = Math.min(...inst.absoluteSeries.map(ot => ot.frequency));
+        
+        // For each note in this instrument's scale
+        for (const noteFreq of inst.scaleNotes) {
+            let totalRoughness = 0;
+            let pairCount = 0;
+            
+            // Shift this instrument's overtones to this note
+            const shiftedInst = inst.absoluteSeries.map(ot => ({
+                frequency: ot.frequency * (noteFreq / fund),
+                amplitude: ot.amplitude
+            }));
+            
+            // Compare against all notes from other instruments
+            for (let otherIdx = 0; otherIdx < instrumentCollection.length; otherIdx++) {
+                if (otherIdx === instIdx) continue; // Skip same instrument
+                
+                const otherInst = instrumentCollection[otherIdx];
+                const otherFund = Math.min(...otherInst.absoluteSeries.map(ot => ot.frequency));
+                
+                for (const otherNoteFreq of otherInst.scaleNotes) {
+                    // Shift other instrument's overtones to this note
+                    const shiftedOther = otherInst.absoluteSeries.map(ot => ({
+                        frequency: ot.frequency * (otherNoteFreq / otherFund),
+                        amplitude: ot.amplitude
+                    }));
+                    
+                    // Calculate roughness between overtone pairs
+                    let noteRoughness = 0;
+                    for (const ot1 of shiftedInst) {
+                        for (const ot2 of shiftedOther) {
+                            const dist = Math.abs(ot1.frequency - ot2.frequency);
+                            const threshold = getThreshold(Math.min(ot1.frequency, ot2.frequency));
+                            if (dist <= threshold) {
+                                const r = roughness(ot1.frequency, ot2.frequency);
+                                noteRoughness += r * ot1.amplitude * ot2.amplitude;
+                            }
+                        }
+                    }
+                    totalRoughness += noteRoughness;
+                    pairCount++;
+                }
+            }
+            
+            const avgRoughness = pairCount > 0 ? totalRoughness / pairCount : 0;
+            noteRoughness.push({
+                instrumentIndex: instIdx,
+                noteFreq: noteFreq,
+                avgRoughness: avgRoughness
+            });
+        }
+    }
+    
+    return noteRoughness;
+}
+
+/**
+ * Thin scales by removing roughest notes until target count is reached
+ * @param {Array} instrumentCollection - Array of objects with {absoluteSeries, scaleNotes}
+ * @param {number} targetNotes - Target number of notes per instrument
+ * @returns {Array} Updated instrumentCollection with thinned scaleNotes
+ */
+function thinScales(instrumentCollection, targetNotes = 7) {
+    // Calculate average roughness for all notes
+    const noteRoughness = calculateNoteRoughnessAverages(instrumentCollection);
+    
+    // Group by instrument
+    const byInstrument = {};
+    noteRoughness.forEach(note => {
+        if (!byInstrument[note.instrumentIndex]) {
+            byInstrument[note.instrumentIndex] = [];
+        }
+        byInstrument[note.instrumentIndex].push(note);
+    });
+    
+    // Create result array
+    const result = instrumentCollection.map(inst => ({
+        absoluteSeries: inst.absoluteSeries,
+        scaleNotes: [...inst.scaleNotes] // Copy array
+    }));
+    
+    // Thin each instrument's scale
+    Object.keys(byInstrument).forEach(instIdx => {
+        const notes = byInstrument[instIdx];
+        const instIndex = parseInt(instIdx);
+        
+        if (notes.length <= targetNotes) return; // Already at or below target
+        
+        // Sort by roughness (ascending - keep least rough)
+        notes.sort((a, b) => a.avgRoughness - b.avgRoughness);
+        
+        // Keep only the least rough notes
+        const keptNotes = notes.slice(0, targetNotes).map(note => note.noteFreq);
+        result[instIndex].scaleNotes = keptNotes;
+    });
+    
+    return result;
+}
+
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { roughness, scanRoughness, findMinRoughnessFundamental, findScale };
+    module.exports = { 
+        roughness, 
+        scanRoughness, 
+        findMinRoughnessFundamental, 
+        findScale,
+        calculateCollectionRoughness,
+        calculateNoteRoughnessAverages,
+        thinScales
+    };
 }
