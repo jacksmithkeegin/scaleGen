@@ -22,7 +22,150 @@ function roughness(f1, f2) {
     return Math.max(0, Math.min(1, rough));
 }
 
+
+/**
+ * Scan a range of fundamentals and compute total roughness for each, given overtone series
+ * @param {Array} primarySeries - Array of {frequency, amplitude} for primary instrument
+ * @param {Array[]} secondarySeriesArr - Array of arrays of {frequency, amplitude} for secondary instruments
+ * @param {Object} options - { rangeOctaves, granularityCents }
+ * @returns {Array} Array of {fundamental, totalRoughness}
+ */
+function scanRoughness(primarySeries, secondarySeriesArr, options = {}) {
+    // Defaults
+    const rangeOctaves = options.rangeOctaves || 2;
+    const granularityCents = options.granularityCents || 5;
+
+    // Get current fundamental from primary series (lowest frequency)
+    const fundamental = Math.min(...primarySeries.map(ot => ot.frequency));
+
+    // Range: center on fundamental, ±rangeOctaves/2
+    const minFund = fundamental / Math.pow(2, rangeOctaves/2);
+    const maxFund = fundamental * Math.pow(2, rangeOctaves/2);
+
+    // Step size in Hz for granularity
+    const stepRatio = Math.pow(2, granularityCents/1200); // 1200 cents = 1 octave
+    let fund = minFund;
+    const results = [];
+
+    // Threshold for roughness calculation: pairs closer than this in Hz
+    // We'll set threshold so roughness(f1, f2) < 0.05 for typical values
+    function getThreshold(f) {
+        // Critical bandwidth at f, times a factor (e.g., 0.5)
+        const sharpness = 0.24 / (0.021 * f + 19);
+        return sharpness * 0.5; // adjustable factor
+    }
+
+    while (fund <= maxFund) {
+        // Shift all overtone series to this fundamental
+        const shiftedPrimary = primarySeries.map(ot => ({
+            frequency: ot.frequency * (fund / fundamental),
+            amplitude: ot.amplitude
+        }));
+        const shiftedSecondaries = secondarySeriesArr.map(series =>
+            series.map(ot => ({
+                frequency: ot.frequency * (fund / fundamental),
+                amplitude: ot.amplitude
+            }))
+        );
+
+        // Collect all overtones
+        const allSeries = [shiftedPrimary, ...shiftedSecondaries];
+        const allOvertones = allSeries.flat();
+
+        // Compute roughness for all pairs within threshold
+        let totalRoughness = 0;
+        for (let i = 0; i < allOvertones.length; i++) {
+            const ot1 = allOvertones[i];
+            for (let j = i + 1; j < allOvertones.length; j++) {
+                const ot2 = allOvertones[j];
+                const dist = Math.abs(ot1.frequency - ot2.frequency);
+                const threshold = getThreshold(Math.min(ot1.frequency, ot2.frequency));
+                if (dist <= threshold) {
+                    const r = roughness(ot1.frequency, ot2.frequency);
+                    totalRoughness += r * ot1.amplitude * ot2.amplitude;
+                }
+            }
+        }
+        results.push({ fundamental: fund, totalRoughness });
+        fund *= stepRatio;
+    }
+    return results;
+}
+
+
+/**
+ * Wrapper: Find fundamental with minimum weighted roughness in scan
+ * @param {Array} primarySeries - Array of {frequency, amplitude} for primary instrument
+ * @param {Array[]} secondarySeriesArr - Array of arrays of {frequency, amplitude} for secondary instruments
+ * @param {Object} options - { rangeOctaves, granularityCents }
+ * @returns {Object} { fundamental, totalRoughness }
+ */
+
+function findMinRoughnessFundamental(primarySeries, secondarySeriesArr, options = {}) {
+    // First scan: coarse
+    const curve = scanRoughness(primarySeries, secondarySeriesArr, options);
+    if (!curve.length) return null;
+
+    // Get current fundamental
+    const fundamental = Math.min(...primarySeries.map(ot => ot.frequency));
+    // Range for triangle weight
+    const minFund = curve[0].fundamental;
+    const maxFund = curve[curve.length - 1].fundamental;
+    const range = maxFund - minFund;
+
+    // Triangle weight: peak at current fundamental, zero at edges
+    function triangleWeight(f) {
+        const dist = Math.abs(f - fundamental);
+        return Math.max(0, 1 - dist / (range / 2));
+    }
+
+    let minVal = null;
+    let minRough = Infinity;
+    for (const pt of curve) {
+        const weight = triangleWeight(pt.fundamental);
+        const weightedRough = pt.totalRoughness / (weight + 1e-6); // avoid div by zero
+        if (weightedRough < minRough) {
+            minRough = weightedRough;
+            minVal = pt;
+        }
+    }
+
+    // Refined scan: narrow region around minVal.fundamental, finer granularity
+    const refineRangeCents = options.refineRangeCents || 20; // ±10 cents
+    const refineGranularityCents = options.refineGranularityCents || 0.5; // 0.5 cent steps
+    const centerFund = minVal.fundamental;
+    const minRefineFund = centerFund * Math.pow(2, -refineRangeCents/2400);
+    const maxRefineFund = centerFund * Math.pow(2, refineRangeCents/2400);
+    const refineOptions = {
+        rangeOctaves: Math.log2(maxRefineFund/minRefineFund),
+        granularityCents: refineGranularityCents
+    };
+
+    // Override scan range to be centered on centerFund
+    const refinedCurve = scanRoughness(
+        primarySeries,
+        secondarySeriesArr,
+        Object.assign({}, refineOptions, {
+            // Center the scan on centerFund
+            centerFundamental: centerFund
+        })
+    );
+
+    // Find refined minimum
+    let refinedMinVal = null;
+    let refinedMinRough = Infinity;
+    for (const pt of refinedCurve) {
+        const weight = triangleWeight(pt.fundamental);
+        const weightedRough = pt.totalRoughness / (weight + 1e-6);
+        if (weightedRough < refinedMinRough) {
+            refinedMinRough = weightedRough;
+            refinedMinVal = pt;
+        }
+    }
+    return refinedMinVal;
+}
+
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { roughness };
+    module.exports = { roughness, scanRoughness, findMinRoughnessFundamental };
 }
