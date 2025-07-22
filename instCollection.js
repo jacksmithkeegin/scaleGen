@@ -10,14 +10,12 @@ class InstCollection {
      * @param {Object} highParams - Params for high instrument (must include fundamental)
      */
     constructor(lowParams, midParams, highParams) {
-        // Check fundamentals are ascending
-        const fLow = lowParams.fundamental;
-        const fMid = midParams.fundamental;
-        const fHigh = highParams.fundamental;
-        if (!(fLow < fMid && fMid < fHigh)) {
-            throw new Error('Fundamental frequencies must be strictly ascending: low < mid < high');
-        }
+        // Get initial fundamentals
+        let fLow = lowParams.fundamental;
+        let fMid = midParams.fundamental;
+        let fHigh = highParams.fundamental;
 
+        // Create low instrument first
         this.low = new Instrument(
             fLow,
             lowParams.harmonicPurity,
@@ -28,6 +26,21 @@ class InstCollection {
             lowParams.irregularity,
             lowParams.maxHarmonics || 32
         );
+
+        // Find overtone of low closest to mid fundamental, weighted by amplitude
+        const lowOvertones = this.low.absoluteSeries;
+        let bestMid = fMid;
+        let minDistMid = Infinity;
+        lowOvertones.forEach(ot => {
+            const dist = Math.abs(ot.frequency - fMid) / ot.amplitude;
+            if (dist < minDistMid) {
+                minDistMid = dist;
+                bestMid = ot.frequency;
+            }
+        });
+        fMid = bestMid;
+
+        // Create mid instrument
         this.mid = new Instrument(
             fMid,
             midParams.harmonicPurity,
@@ -38,6 +51,26 @@ class InstCollection {
             midParams.irregularity,
             midParams.maxHarmonics || 32
         );
+
+        // Find overtone of mid closest to high fundamental, weighted by amplitude
+        const midOvertones = this.mid.absoluteSeries;
+        let bestHigh = fHigh;
+        let minDistHigh = Infinity;
+        midOvertones.forEach(ot => {
+            const dist = Math.abs(ot.frequency - fHigh) / ot.amplitude;
+            if (dist < minDistHigh) {
+                minDistHigh = dist;
+                bestHigh = ot.frequency;
+            }
+        });
+        fHigh = bestHigh;
+
+        // Check fundamentals are ascending
+        if (!(fLow < fMid && fMid < fHigh)) {
+            throw new Error('Fundamental frequencies must be strictly ascending after rounding: low < mid < high');
+        }
+
+        // Create high instrument
         this.high = new Instrument(
             fHigh,
             highParams.harmonicPurity,
