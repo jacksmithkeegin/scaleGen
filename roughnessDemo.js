@@ -16,29 +16,29 @@ const lowParams = {
     formantStrength: 0.0,
     spectralRichness: 0.7,
     irregularity: 0.0,
-    maxHarmonics: 8
+    maxHarmonics: 32
 };
 
 const midParams = {
-    fundamental: 250, // Close to both
+    fundamental: 1000, // Close to both
     harmonicPurity: 1.0,
     spectralBalance: 0.4,
     oddEvenBias: 0.5,
     formantStrength: 0.0,
     spectralRichness: 0.7,
     irregularity: 0.0,
-    maxHarmonics: 8
+    maxHarmonics: 32
 };
 
 const highParams = {
-    fundamental: 300, // Close to mid
+    fundamental: 3000, // Close to mid
     harmonicPurity: 1.0,
     spectralBalance: 0.4,
     oddEvenBias: 0.5,
     formantStrength: 0.0,
     spectralRichness: 0.7,
     irregularity: 0.0,
-    maxHarmonics: 8
+    maxHarmonics: 32
 };
 
 try {
@@ -71,6 +71,17 @@ try {
         { absoluteSeries: collection.mid.absoluteSeries, scaleNotes: collection.midNotes },
         { absoluteSeries: collection.high.absoluteSeries, scaleNotes: collection.highNotes }
     ];
+    
+    // Debug: Check absoluteSeries content
+    console.log('\n=== Debug: AbsoluteSeries Content ===');
+    instrumentData.forEach((inst, i) => {
+        const name = ['Low', 'Mid', 'High'][i];
+        console.log(`${name} instrument - ${inst.absoluteSeries.length} overtones:`);
+        inst.absoluteSeries.slice(0, 5).forEach(ot => {
+            console.log(`  ${ot.frequency.toFixed(2)} Hz, amp: ${ot.amplitude.toFixed(4)}`);
+        });
+        if (inst.absoluteSeries.length > 5) console.log('  ...');
+    });
     
     const totalRoughness = calculateCollectionRoughness(instrumentData);
     console.log(`\nTotal collection roughness: ${totalRoughness.toFixed(6)}`);

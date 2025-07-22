@@ -5,21 +5,28 @@
  * @returns {number} Roughness value in [0,1]
  */
 function roughness(f1, f2) {
+    if (f1 === f2) return 0; // No roughness for identical frequencies
+    
     const f_low = Math.min(f1, f2);
     const f_high = Math.max(f1, f2);
     const distance = f_high - f_low;
-
-    // Estimate the critical bandwidth around the lower frequency
-    const sharpness = 0.24 / (0.021 * f_low + 19);
-
-    // Convert frequency distance to a normalized value
-    const x = distance / sharpness;
-
-    // Apply a smooth bell-shaped curve that peaks at the roughest distance
-    const rough = Math.exp(-3.5 * x) * Math.pow(Math.sin(Math.PI * x), 2);
-
-    // Clamp to [0,1] for safety
-    return Math.max(0, Math.min(1, rough));
+    
+    // Critical bandwidth using Bark scale (more psychoacoustically accurate)
+    const f_center = (f_low + f_high) / 2;
+    const cb = 25 + 75 * Math.pow(1 + 1.4 * (f_center/1000), 0.69);
+    
+    // Normalize distance to critical bandwidth
+    const x = distance / cb;
+    
+    // Roughness curve: peaks around x = 0.25 (quarter critical bandwidth)
+    // No roughness beyond 2 critical bandwidths
+    if (x > 2) return 0; 
+    
+    // Apply a bell-shaped curve that peaks at the roughest distance
+    const roughness = Math.exp(-x) * Math.pow(Math.sin(2 * Math.PI * x), 2);
+    
+    // Clamp to [0,1] for safety and normalize
+    return Math.max(0, Math.min(1, roughness));
 }
 
 
@@ -48,11 +55,11 @@ function scanRoughness(primarySeries, secondarySeriesArr, options = {}) {
     const results = [];
 
     // Threshold for roughness calculation: pairs closer than this in Hz
-    // We'll set threshold so roughness(f1, f2) < 0.05 for typical values
+    // We'll set threshold to the critical bandwidth for roughness calculation
     function getThreshold(f) {
-        // Critical bandwidth at f, times a factor (e.g., 0.5)
-        const sharpness = 0.24 / (0.021 * f + 19);
-        return sharpness * 0.5; // adjustable factor
+        // Critical bandwidth using Bark scale (psychoacoustically accurate)
+        const cb = 25 + 75 * Math.pow(1 + 1.4 * (f/1000), 0.69);
+        return cb; // Use full critical bandwidth as threshold
     }
 
     while (fund <= maxFund) {
@@ -283,8 +290,8 @@ function calculateCollectionRoughness(instrumentCollection) {
     
     // Helper function for threshold (same as in scanRoughness)
     function getThreshold(f) {
-        const sharpness = 0.24 / (0.021 * f + 19);
-        return sharpness * 0.5;
+        const cb = 25 + 75 * Math.pow(1 + 1.4 * (f/1000), 0.69);
+        return cb;
     }
     
     // For each pair of instruments
@@ -340,8 +347,8 @@ function calculateNoteRoughnessAverages(instrumentCollection) {
     
     // Helper function for threshold (same as in scanRoughness)
     function getThreshold(f) {
-        const sharpness = 0.24 / (0.021 * f + 19);
-        return sharpness * 0.5;
+        const cb = 25 + 75 * Math.pow(1 + 1.4 * (f/1000), 0.69);
+        return cb;
     }
     
     // For each instrument
