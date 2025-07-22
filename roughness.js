@@ -165,7 +165,86 @@ function findMinRoughnessFundamental(primarySeries, secondarySeriesArr, options 
     return refinedMinVal;
 }
 
+
+/**
+ * Find multiple local minima of roughness curve, with constraints
+ * @param {Array} primarySeries - Array of {frequency, amplitude} for primary instrument
+ * @param {Array[]} secondarySeriesArr - Array of arrays of {frequency, amplitude} for secondary instruments
+ * @param {Object} options - { rangeOctaves, granularityCents, minRatio, targetCount, refineRangeCents, refineGranularityCents }
+ * @returns {Array} Array of selected note frequencies (local minima)
+ */
+function findScale(primarySeries, secondarySeriesArr, options = {}) {
+    const rangeOctaves = options.rangeOctaves || 2;
+    const granularityCents = options.granularityCents || 5;
+    const minRatio = options.minRatio || Math.pow(2, 100/1200); // ~100 cents
+    const targetCount = options.targetCount || 7;
+    const refineRangeCents = options.refineRangeCents || 20;
+    const refineGranularityCents = options.refineGranularityCents || 0.5;
+
+    // Scan coarse curve
+    const curve = scanRoughness(primarySeries, secondarySeriesArr, {
+        rangeOctaves,
+        granularityCents
+    });
+    if (!curve.length) return [];
+
+    // Find local minima
+    function isLocalMin(idx) {
+        const prev = curve[idx-1]?.totalRoughness ?? Infinity;
+        const next = curve[idx+1]?.totalRoughness ?? Infinity;
+        return curve[idx].totalRoughness < prev && curve[idx].totalRoughness < next;
+    }
+    let localMinima = [];
+    for (let i = 1; i < curve.length-1; i++) {
+        if (isLocalMin(i)) {
+            localMinima.push(curve[i]);
+        }
+    }
+
+    // Sort by roughness
+    localMinima.sort((a, b) => a.totalRoughness - b.totalRoughness);
+
+    // Select minima with minRatio constraint
+    let selected = [];
+    for (const min of localMinima) {
+        if (selected.length >= targetCount) break;
+        if (selected.every(sel => Math.max(min.fundamental, sel.fundamental) / Math.min(min.fundamental, sel.fundamental) >= minRatio)) {
+            selected.push(min);
+        }
+    }
+
+    // Refine each selected minimum
+    let refined = [];
+    for (const min of selected) {
+        const centerFund = min.fundamental;
+        const minRefineFund = centerFund * Math.pow(2, -refineRangeCents/2400);
+        const maxRefineFund = centerFund * Math.pow(2, refineRangeCents/2400);
+        const refineOptions = {
+            rangeOctaves: Math.log2(maxRefineFund/minRefineFund),
+            granularityCents: refineGranularityCents
+        };
+        const refinedCurve = scanRoughness(
+            primarySeries,
+            secondarySeriesArr,
+            Object.assign({}, refineOptions, {
+                centerFundamental: centerFund
+            })
+        );
+        // Find refined minimum
+        let refinedMinVal = null;
+        let refinedMinRough = Infinity;
+        for (const pt of refinedCurve) {
+            if (pt.totalRoughness < refinedMinRough) {
+                refinedMinRough = pt.totalRoughness;
+                refinedMinVal = pt;
+            }
+        }
+        if (refinedMinVal) refined.push(refinedMinVal.fundamental);
+    }
+    return refined;
+}
+
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { roughness, scanRoughness, findMinRoughnessFundamental };
+    module.exports = { roughness, scanRoughness, findMinRoughnessFundamental, findScale };
 }
