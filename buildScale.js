@@ -1,4 +1,4 @@
-const { findScale, generateDissonanceCurve, findLocalMinima, refineMinimaAndGetCurves } = require('./dissonance.js');
+const { findScale, generateDissonanceCurve, findLocalMinima, refineMinimaAndGetCurves, optimizeScalesCombined } = require('./dissonance.js');
 
 /**
  * Build scales from multiple overtone series, each with its own search range.
@@ -145,7 +145,36 @@ function findScaleInRange(freq, amp, rangeStart, rangeEnd, minNotes, minRatio, m
     return selectedNotes;
 }
 
+/**
+ * Build and optimize scales from multiple overtone series using combined dissonance analysis.
+ * First generates raw scales for each overtone series, then optimizes by evaluating 
+ * dissonance of each note against all other notes across all scales.
+ * @param {Array<{freq: number[], amp: number[]}>} overtoneSeries - Array of overtone series objects, each with freq and amp arrays.
+ * @param {number} minNotes - Minimum number of notes required in each initial scale.
+ * @param {number} minRatio - Minimum ratio between successive frequencies in initial scales.
+ * @param {number} targetNotes - Target number of notes to select for each final optimized scale.
+ * @param {number} [maxNotes=36] - Maximum number of notes allowed in each initial scale (more candidates for optimization).
+ * @returns {Array<Array<{frequency: number, ratio: number, dissonance: number, combinedDissonance: number}>>} Array of optimized scales.
+ */
+function buildAndOptimizeScales(overtoneSeries, minNotes, minRatio, targetNotes, maxNotes = 36) {
+    console.log('\n=== Building and Optimizing Scales ===');
+    console.log(`Phase 1: Building initial scales (${minNotes}-${maxNotes} notes, min ratio: ${minRatio})`);
+    
+    // Phase 1: Build initial scales using the existing method
+    const initialScales = buildScalesFromOvertones(overtoneSeries, minNotes, minRatio, maxNotes);
+    
+    console.log(`Phase 2: Optimizing scales using combined dissonance analysis (target: ${targetNotes} notes each)`);
+    
+    // Phase 2: Optimize scales using combined dissonance analysis
+    const optimizedScales = optimizeScalesCombined(initialScales, overtoneSeries, targetNotes);
+    
+    console.log('=== Scale Optimization Complete ===\n');
+    
+    return optimizedScales;
+}
+
 module.exports = {
     buildScalesFromOvertones,
-    findScaleInRange
+    findScaleInRange,
+    buildAndOptimizeScales
 };
