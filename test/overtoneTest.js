@@ -2,8 +2,8 @@ const {
     generateDissonanceCurve,
     findLocalMinima,
     refineMinimaAndGetCurves
-} = require('./dissonance.js');
-const { generateOvertonesArrays } = require('./overtoneGen.js');
+} = require('../dissonance.js');
+const { generateOvertonesArrays } = require('../overtoneGen.js');
 const fs = require('fs');
 
 // --- Configuration ---
@@ -22,12 +22,12 @@ const amp = freq.map((f, i) => Math.pow(1 / (i + 1), rolloff));
 
 // Generate reference overtone series using overtoneGen (should match harmonic series with rolloff)
 const overtoneParams = {
-    harmonicPurity: 1.0,      // perfect harmonic series
+    harmonicPurity: 0.0,      // perfect harmonic series
     spectralBalance: 0.5,     // balanced (natural rolloff)
     oddEvenBias: 0.5,         // no bias
     formantStrength: 0.0,     // no formants
     spectralRichness: 0.0,    // minimal richness
-    irregularity: 0.0,        // no irregularity
+    irregularity: 1.0,        // no irregularity
     maxHarmonics: numPartials
 };
 const overtoneArrays = generateOvertonesArrays(

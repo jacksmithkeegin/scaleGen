@@ -2,12 +2,12 @@ const {
     generateDissonanceCurve,
     findLocalMinima,
     refineMinimaAndGetCurves
-} = require('./dissonance.js');
-const { generateOvertonesArrays } = require('./overtoneGen.js');
+} = require('../dissonance.js');
+const { generateOvertonesArrays } = require('../overtoneGen.js');
 const fs = require('fs');
 
 // --- Configuration ---
-const numPartials = 9;
+const numPartials = 16;
 const fundamental = 500;
 const rangeStart = 1.0;
 const rangeEnd = 2.3;
@@ -15,32 +15,49 @@ const coarseIncrement = 0.005; // A finer increment to distinguish close minima
 const fineSearchWidth = 0.01; 
 const fineIncrement = 0.0005;
 
-// Generate swept overtone series (harmonic series) with natural rolloff
-const freq = Array.from({length: numPartials}, (_, i) => fundamental * (i + 1));
-const rolloff = 0.5; // matches overtoneGen default for natural rolloff
-const amp = freq.map((f, i) => Math.pow(1 / (i + 1), rolloff));
-
-// Generate reference overtone series using overtoneGen (should match harmonic series with rolloff)
-const overtoneParams = {
-    harmonicPurity: 0.0,      // perfect harmonic series
-    spectralBalance: 0.5,     // balanced (natural rolloff)
-    oddEvenBias: 0.5,         // no bias
-    formantStrength: 0.0,     // no formants
-    spectralRichness: 0.0,    // minimal richness
-    irregularity: 1.0,        // no irregularity
+// Generate swept overtone series using overtoneGen (e.g. bell-like, odd harmonics, formants)
+const sweptParams = {
+    harmonicPurity: 0.2,      // bell-like partial stretching
+    spectralBalance: 0.7,     // more high harmonics
+    oddEvenBias: 0.8,         // emphasize odd harmonics
+    formantStrength: 0.5,     // some formant resonance
+    spectralRichness: 0.6,    // richer spectrum
+    irregularity: 0.3,        // some irregularity
     maxHarmonics: numPartials
 };
-const overtoneArrays = generateOvertonesArrays(
-    overtoneParams.harmonicPurity,
-    overtoneParams.spectralBalance,
-    overtoneParams.oddEvenBias,
-    overtoneParams.formantStrength,
-    overtoneParams.spectralRichness,
-    overtoneParams.irregularity,
-    overtoneParams.maxHarmonics
+const sweptArrays = generateOvertonesArrays(
+    sweptParams.harmonicPurity,
+    sweptParams.spectralBalance,
+    sweptParams.oddEvenBias,
+    sweptParams.formantStrength,
+    sweptParams.spectralRichness,
+    sweptParams.irregularity,
+    sweptParams.maxHarmonics
 );
-const refFreq = overtoneArrays.ratios.map(r => r * fundamental);
-const refAmp = overtoneArrays.amplitudes;
+const freq = sweptArrays.ratios.map(r => r * fundamental);
+const amp = sweptArrays.amplitudes;
+
+// Generate reference overtone series using overtoneGen (e.g. pure harmonic, even harmonics, no formants)
+const refParams = {
+    harmonicPurity: 1.0,      // perfect harmonic series
+    spectralBalance: 0.3,     // more low harmonics
+    oddEvenBias: 0.2,         // emphasize even harmonics
+    formantStrength: 0.0,     // no formants
+    spectralRichness: 0.2,    // less rich
+    irregularity: 0.0,        // no irregularity
+    maxHarmonics: numPartials
+};
+const refArrays = generateOvertonesArrays(
+    refParams.harmonicPurity,
+    refParams.spectralBalance,
+    refParams.oddEvenBias,
+    refParams.formantStrength,
+    refParams.spectralRichness,
+    refParams.irregularity,
+    refParams.maxHarmonics
+);
+const refFreq = refArrays.ratios.map(r => r * fundamental);
+const refAmp = refArrays.amplitudes;
 
 // --- Expected Minima (from guide.txt for a 9-partial harmonic timbre) ---
 const expectedMinimaData = {
