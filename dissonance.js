@@ -1,4 +1,10 @@
 
+/**
+ * Calculate the sensory dissonance of a set of partials using the Sethares model.
+ * @param {number[]} fvec - Array of frequencies (Hz) for each partial.
+ * @param {number[]} amp - Array of amplitudes for each partial (same length as fvec).
+ * @returns {number} Dissonance value (lower = more consonant).
+ */
 function dissmeasure(fvec, amp) {
     const Dstar = 0.24;
     const S1 = 0.0207;
@@ -33,12 +39,29 @@ function dissmeasure(fvec, amp) {
     return D;
 }
 
-function generateDissonanceCurve(freq, amp, start, end, inc) {
+/**
+ * Generate a dissonance curve by varying the frequency ratio (alpha) and measuring dissonance.
+ * Allows specifying a reference overtone set to sweep against.
+ * @param {number[]} freq - Array of base frequencies (Hz) for the swept set.
+ * @param {number[]} amp - Array of amplitudes for each frequency in the swept set.
+ * @param {number} start - Starting alpha value (ratio).
+ * @param {number} end - Ending alpha value (ratio).
+ * @param {number} inc - Increment for alpha.
+ * @param {number[]} [refFreq] - Optional array of reference frequencies (Hz) to hold fixed.
+ * @param {number[]} [refAmp] - Optional array of reference amplitudes for the reference frequencies.
+ * @returns {{alphas: number[], dissonances: number[]}} Object containing arrays of alpha values and corresponding dissonance values.
+ */
+function generateDissonanceCurve(freq, amp, start, end, inc, refFreq = null, refAmp = null) {
     const dissonances = [];
     const alphas = [];
     for (let alpha = start; alpha <= end; alpha += inc) {
-        const f = [...freq, ...freq.map(val => val * alpha)];
-        const a = [...amp, ...amp];
+        // If reference overtone set is provided, use it; otherwise, use freq/amp as reference
+        const sweepFreq = freq.map(val => val * alpha);
+        const sweepAmp = [...amp];
+        const baseFreq = refFreq ? refFreq : freq;
+        const baseAmp = refAmp ? refAmp : amp;
+        const f = [...baseFreq, ...sweepFreq];
+        const a = [...baseAmp, ...sweepAmp];
         const d = dissmeasure(f, a);
         dissonances.push(d);
         alphas.push(alpha);
@@ -46,6 +69,12 @@ function generateDissonanceCurve(freq, amp, start, end, inc) {
     return { alphas, dissonances };
 }
 
+/**
+ * Find local minima in a dissonance curve.
+ * @param {number[]} alphas - Array of alpha values (ratios).
+ * @param {number[]} dissonances - Array of dissonance values corresponding to alphas.
+ * @returns {{alpha: number, dissonance: number}[]} Array of objects for each local minimum found.
+ */
 function findLocalMinima(alphas, dissonances) {
     const minima = [];
     // Check start
@@ -65,6 +94,15 @@ function findLocalMinima(alphas, dissonances) {
     return minima;
 }
 
+/**
+ * Refine the location of coarse minima by searching in a narrower range and return refined minima and their curves.
+ * @param {number[]} freq - Array of base frequencies (Hz).
+ * @param {number[]} amp - Array of amplitudes for each frequency.
+ * @param {{alpha: number, dissonance: number}[]} coarseMinima - Array of coarse minima objects.
+ * @param {number} searchWidth - Range to search around each coarse minimum.
+ * @param {number} increment - Increment for alpha in the refined search.
+ * @returns {{minimum: {alpha: number, dissonance: number}, curve: {alpha: number, dissonance: number}[]}[]} Array of objects containing refined minimum and its curve.
+ */
 function refineMinimaAndGetCurves(freq, amp, coarseMinima, searchWidth, increment) {
     const refinedResults = [];
     for (const coarseMin of coarseMinima) {
@@ -96,6 +134,9 @@ function refineMinimaAndGetCurves(freq, amp, coarseMinima, searchWidth, incremen
     return refinedResults;
 }
 
+/**
+ * Exported functions for dissonance analysis.
+ */
 module.exports = { 
     dissmeasure,
     generateDissonanceCurve,
