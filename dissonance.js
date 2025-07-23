@@ -96,19 +96,22 @@ function findLocalMinima(alphas, dissonances) {
 
 /**
  * Refine the location of coarse minima by searching in a narrower range and return refined minima and their curves.
- * @param {number[]} freq - Array of base frequencies (Hz).
- * @param {number[]} amp - Array of amplitudes for each frequency.
+ * Allows specifying a reference overtone set to sweep against.
+ * @param {number[]} freq - Array of base frequencies (Hz) for the swept set.
+ * @param {number[]} amp - Array of amplitudes for each frequency in the swept set.
  * @param {{alpha: number, dissonance: number}[]} coarseMinima - Array of coarse minima objects.
  * @param {number} searchWidth - Range to search around each coarse minimum.
  * @param {number} increment - Increment for alpha in the refined search.
+ * @param {number[]} [refFreq] - Optional array of reference frequencies (Hz) to hold fixed.
+ * @param {number[]} [refAmp] - Optional array of reference amplitudes for the reference frequencies.
  * @returns {{minimum: {alpha: number, dissonance: number}, curve: {alpha: number, dissonance: number}[]}[]} Array of objects containing refined minimum and its curve.
  */
-function refineMinimaAndGetCurves(freq, amp, coarseMinima, searchWidth, increment) {
+function refineMinimaAndGetCurves(freq, amp, coarseMinima, searchWidth, increment, refFreq = null, refAmp = null) {
     const refinedResults = [];
     for (const coarseMin of coarseMinima) {
         const start = coarseMin.alpha - searchWidth;
         const end = coarseMin.alpha + searchWidth;
-        const { alphas, dissonances } = generateDissonanceCurve(freq, amp, start, end, increment);
+        const { alphas, dissonances } = generateDissonanceCurve(freq, amp, start, end, increment, refFreq, refAmp);
         
         let minDissonance = Infinity;
         let minAlpha = -1;

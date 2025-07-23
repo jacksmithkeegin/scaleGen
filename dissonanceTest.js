@@ -3,16 +3,44 @@ const {
     findLocalMinima,
     refineMinimaAndGetCurves
 } = require('./dissonance.js');
+const { generateOvertonesArrays } = require('./overtoneGen.js');
 const fs = require('fs');
 
 // --- Configuration ---
-const freq = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500]; // 9 partials
-const amp = [1, 1, 1, 1, 1, 1, 1, 1, 1];
+const numPartials = 9;
+const fundamental = 500;
 const rangeStart = 1.0;
 const rangeEnd = 2.3;
 const coarseIncrement = 0.005; // A finer increment to distinguish close minima
 const fineSearchWidth = 0.01; 
 const fineIncrement = 0.0005;
+
+// Generate swept overtone series (harmonic series) with natural rolloff
+const freq = Array.from({length: numPartials}, (_, i) => fundamental * (i + 1));
+const rolloff = 0.5; // matches overtoneGen default for natural rolloff
+const amp = freq.map((f, i) => Math.pow(1 / (i + 1), rolloff));
+
+// Generate reference overtone series using overtoneGen (should match harmonic series with rolloff)
+const overtoneParams = {
+    harmonicPurity: 1.0,      // perfect harmonic series
+    spectralBalance: 0.5,     // balanced (natural rolloff)
+    oddEvenBias: 0.5,         // no bias
+    formantStrength: 0.0,     // no formants
+    spectralRichness: 0.0,    // minimal richness
+    irregularity: 0.0,        // no irregularity
+    maxHarmonics: numPartials
+};
+const overtoneArrays = generateOvertonesArrays(
+    overtoneParams.harmonicPurity,
+    overtoneParams.spectralBalance,
+    overtoneParams.oddEvenBias,
+    overtoneParams.formantStrength,
+    overtoneParams.spectralRichness,
+    overtoneParams.irregularity,
+    overtoneParams.maxHarmonics
+);
+const refFreq = overtoneArrays.ratios.map(r => r * fundamental);
+const refAmp = overtoneArrays.amplitudes;
 
 // --- Expected Minima (from guide.txt for a 9-partial harmonic timbre) ---
 const expectedMinimaData = {
@@ -32,14 +60,14 @@ const expectedMinimaData = {
     "Octave": 2.0
 };
 
-// 1. Generate the coarse dissonance curve
-const { alphas, dissonances } = generateDissonanceCurve(freq, amp, rangeStart, rangeEnd, coarseIncrement);
+// 1. Generate the coarse dissonance curve using overtoneGen for reference
+const { alphas, dissonances } = generateDissonanceCurve(freq, amp, rangeStart, rangeEnd, coarseIncrement, refFreq, refAmp);
 
 // 2. Find the local minima in the coarse curve
 const coarseMinima = findLocalMinima(alphas, dissonances);
 
-// 3. Refine the minima and get the high-resolution curve segments
-const refinedResults = refineMinimaAndGetCurves(freq, amp, coarseMinima, fineSearchWidth, fineIncrement);
+// 3. Refine the minima and get the high-resolution curve segments using overtoneGen for reference
+const refinedResults = refineMinimaAndGetCurves(freq, amp, coarseMinima, fineSearchWidth, fineIncrement, refFreq, refAmp);
 const refinedMinima = refinedResults.map(r => r.minimum);
 
 // 4. Construct the final, high-resolution curve data
@@ -64,19 +92,26 @@ finalCurveData.sort((a, b) => a.x - b.x);
 
 const minimaPoints = refinedMinima.map(m => ({ x: m.alpha, y: m.dissonance }));
 
-// 5. Generate the HTML chart
+// 5. Generate the HTML chart with both overtone series plotted
+const sweptOvertonesData = freq.map((f, i) => ({ x: f, y: amp[i] }));
+const refOvertonesData = refFreq.map((f, i) => ({ x: f, y: refAmp[i] }));
+
 const chartHtml = `
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Dissonance Curve with Minima</title>
+    <title>Dissonance Curve with Minima & Overtone Series</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
+    <h2>Dissonance Curve with Minima</h2>
     <canvas id="dissonanceChart"></canvas>
+    <h2>Overtone Series (Swept & Reference)</h2>
+    <canvas id="overtoneChart"></canvas>
     <script>
-        const ctx = document.getElementById('dissonanceChart').getContext('2d');
-        new Chart(ctx, {
+        // Dissonance curve chart
+        const ctx1 = document.getElementById('dissonanceChart').getContext('2d');
+        new Chart(ctx1, {
             type: 'line',
             data: {
                 datasets: [{
@@ -101,13 +136,56 @@ const chartHtml = `
                 }
             }
         });
+
+        // Overtone series chart
+        const ctx2 = document.getElementById('overtoneChart').getContext('2d');
+        new Chart(ctx2, {
+            type: 'scatter',
+            data: {
+                datasets: [
+                    {
+                        label: 'Swept Overtone Series',
+                        data: ${JSON.stringify(sweptOvertonesData)},
+                        backgroundColor: 'rgba(0, 200, 0, 0.7)',
+                        borderColor: 'rgba(0, 200, 0, 1)',
+                        pointRadius: 6
+                    },
+                    {
+                        label: 'Reference Overtone Series',
+                        data: ${JSON.stringify(refOvertonesData)},
+                        backgroundColor: 'rgba(200, 0, 200, 0.7)',
+                        borderColor: 'rgba(200, 0, 200, 1)',
+                        pointRadius: 6
+                    }
+                ]
+            },
+            options: {
+                scales: {
+                    x: { type: 'linear', position: 'bottom', title: { display: true, text: 'Frequency (Hz)' } },
+                    y: { title: { display: true, text: 'Amplitude' } }
+                }
+            }
+        });
     </script>
 </body>
 </html>
 `;
 
+
 fs.writeFileSync('dissonance_chart_with_minima.html', chartHtml);
-console.log('Dissonance chart with minima generated in dissonance_chart_with_minima.html');
+console.log('Dissonance chart with minima generated in dissonance_chart_with_minima.html, including overtone series plot.');
+
+// 5b. Print overtone series comparison chart to console
+console.log('\n--- Overtone Series Comparison ---');
+console.log('Idx | Swept Freq | Swept Amp | Ref Freq   | Ref Amp');
+console.log('-----------------------------------------------------');
+for (let i = 0; i < Math.max(freq.length, refFreq.length); i++) {
+    const sweptF = freq[i] !== undefined ? freq[i].toFixed(2).padEnd(10) : ''.padEnd(10);
+    const sweptA = amp[i] !== undefined ? amp[i].toFixed(3).padEnd(9) : ''.padEnd(9);
+    const refF = refFreq[i] !== undefined ? refFreq[i].toFixed(2).padEnd(10) : ''.padEnd(10);
+    const refA = refAmp[i] !== undefined ? refAmp[i].toFixed(3).padEnd(9) : ''.padEnd(9);
+    console.log(`${String(i+1).padEnd(3)}| ${sweptF} | ${sweptA} | ${refF} | ${refA}`);
+}
 
 // 6. Compare found minima with expected minima
 console.log('\n--- Comparison of Found Minima to Expected Minima ---');

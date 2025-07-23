@@ -63,11 +63,11 @@ function generateOvertones(harmonicPurity = 1.0, spectralBalance = 0.5, oddEvenB
             amplitude = Math.pow(1 / n, rolloff);
         }
         
-        // Apply odd/even bias
+        // Apply odd/even bias (smoothly varies: 0=even, 1=odd, 0.5=neutral)
         const isOdd = (n % 2 === 1);
-        const oddEvenMultiplier = isOdd ? 
-            (0.5 + oddEvenBias * 0.5) : 
-            (1.5 - oddEvenBias * 0.5);
+        // Range: oddEvenBias=0 => even=1, odd=1-oddEvenBias=1; oddEvenBias=1 => even=1-oddEvenBias=0, odd=1
+        // Use: multiplier = 1 + (isOdd ? oddEvenBias - 0.5 : 0.5 - oddEvenBias)
+        const oddEvenMultiplier = 1 + (isOdd ? oddEvenBias - 0.5 : 0.5 - oddEvenBias);
         amplitude *= oddEvenMultiplier;
         
         // Apply formant resonances
