@@ -104,13 +104,14 @@ function findLocalMinima(alphas, dissonances) {
  * @param {number} increment - Increment for alpha in the refined search.
  * @param {number[]} [refFreq] - Optional array of reference frequencies (Hz) to hold fixed.
  * @param {number[]} [refAmp] - Optional array of reference amplitudes for the reference frequencies.
+ * @param {number} [offset=0] - Optional offset to apply to the search range.
  * @returns {{minimum: {alpha: number, dissonance: number}, curve: {alpha: number, dissonance: number}[]}[]} Array of objects containing refined minimum and its curve.
  */
-function refineMinimaAndGetCurves(freq, amp, coarseMinima, searchWidth, increment, refFreq = null, refAmp = null) {
+function refineMinimaAndGetCurves(freq, amp, coarseMinima, searchWidth, increment, refFreq = null, refAmp = null, offset = 0) {
     const refinedResults = [];
     for (const coarseMin of coarseMinima) {
-        const start = coarseMin.alpha - searchWidth;
-        const end = coarseMin.alpha + searchWidth;
+        const start = coarseMin.alpha - searchWidth + offset;
+        const end = coarseMin.alpha + searchWidth + offset;
         const { alphas, dissonances } = generateDissonanceCurve(freq, amp, start, end, increment, refFreq, refAmp);
         
         let minDissonance = Infinity;
@@ -138,11 +139,88 @@ function refineMinimaAndGetCurves(freq, amp, coarseMinima, searchWidth, incremen
 }
 
 /**
+ * Find a scale of notes based on dissonance minima within specified constraints.
+ * @param {number[]} freq - Array of base frequencies (Hz) for the swept set.
+ * @param {number[]} amp - Array of amplitudes for each frequency in the swept set.
+ * @param {number} minNotes - Minimum number of notes required in the scale.
+ * @param {number} minRatio - Minimum ratio between successive frequencies.
+ * @param {number} maxNotes - Maximum number of notes allowed in the scale.
+ * @param {number[]} refFreq - Array of reference frequencies (Hz) to hold fixed.
+ * @param {number[]} refAmp - Array of reference amplitudes for the reference frequencies.
+ * @returns {{frequency: number, ratio: number, dissonance: number}[]} Array of scale notes sorted by frequency.
+ */
+function findScale(freq, amp, minNotes, minRatio, maxNotes, refFreq, refAmp) {
+    // Search parameters - covering two octaves (1 octave above and below)
+    const rangeStart = 0.5;  // One octave below
+    const rangeEnd = 2.0;    // One octave above
+    const coarseIncrement = 0.005;
+    const fineSearchWidth = 0.01;
+    const fineIncrement = 0.0005;
+    
+    // Generate coarse dissonance curve
+    const { alphas, dissonances } = generateDissonanceCurve(freq, amp, rangeStart, rangeEnd, coarseIncrement, refFreq, refAmp);
+    
+    // Find local minima
+    const coarseMinima = findLocalMinima(alphas, dissonances);
+    
+    // Refine minima
+    const refinedResults = refineMinimaAndGetCurves(freq, amp, coarseMinima, fineSearchWidth, fineIncrement, refFreq, refAmp);
+    const refinedMinima = refinedResults.map(r => r.minimum);
+    
+    // Sort minima by dissonance (lowest first)
+    refinedMinima.sort((a, b) => a.dissonance - b.dissonance);
+    
+    // Convert to scale notes with frequencies
+    const fundamental = refFreq[0]; // Assume first reference frequency is the fundamental
+    const candidateNotes = refinedMinima.map(min => ({
+        frequency: fundamental * min.alpha,
+        ratio: min.alpha,
+        dissonance: min.dissonance
+    }));
+    
+    // Sort by frequency for ratio filtering
+    candidateNotes.sort((a, b) => a.frequency - b.frequency);
+    
+    // Filter by minimum ratio constraint, but ensure minimum notes
+    const selectedNotes = [];
+    let lastFreq = 0;
+    
+    for (const note of candidateNotes) {
+        const ratio = lastFreq > 0 ? note.frequency / lastFreq : Infinity;
+        
+        if (selectedNotes.length < minNotes || ratio >= minRatio) {
+            selectedNotes.push(note);
+            lastFreq = note.frequency;
+            
+            if (selectedNotes.length >= maxNotes) {
+                break;
+            }
+        }
+    }
+    
+    // If we don't have enough notes, add more from the best remaining candidates
+    if (selectedNotes.length < minNotes) {
+        const remaining = candidateNotes.filter(note => !selectedNotes.includes(note));
+        remaining.sort((a, b) => a.dissonance - b.dissonance);
+        
+        while (selectedNotes.length < minNotes && remaining.length > 0) {
+            selectedNotes.push(remaining.shift());
+        }
+        
+        // Re-sort by frequency after adding notes
+        selectedNotes.sort((a, b) => a.frequency - b.frequency);
+    }
+    
+    return selectedNotes;
+}
+
+/**
  * Exported functions for dissonance analysis.
  */
 module.exports = { 
     dissmeasure,
     generateDissonanceCurve,
     findLocalMinima,
-    refineMinimaAndGetCurves
+    refineMinimaAndGetCurves,
+    findScale
 };
