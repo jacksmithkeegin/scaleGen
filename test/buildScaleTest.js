@@ -1,5 +1,5 @@
-const { buildScalesFromOvertones } = require('./buildScale.js');
-const { generateOvertonesArrays } = require('./overtoneGen.js');
+const { buildScalesFromOvertones } = require('../buildScale.js');
+const { generateOvertonesArrays } = require('../overtoneGen.js');
 
 console.log('\n=== Build Scales from Multiple Overtone Series Test ===');
 

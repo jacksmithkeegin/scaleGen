@@ -1,5 +1,5 @@
-const { buildAndOptimizeScales, buildScalesFromOvertones } = require('./buildScale.js');
-const { generateOvertonesArrays } = require('./overtoneGen.js');
+const { buildAndOptimizeScales, buildScalesFromOvertones } = require('../buildScale.js');
+const { generateOvertonesArrays } = require('../overtoneGen.js');
 
 console.log('\n=== Combined Optimization Test ===');
 

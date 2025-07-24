@@ -1,5 +1,5 @@
-const { buildScalesFromOvertones } = require('./buildScale.js');
-const { generateOvertonesArrays } = require('./overtoneGen.js');
+const { buildScalesFromOvertones } = require('../buildScale.js');
+const { generateOvertonesArrays } = require('../overtoneGen.js');
 
 console.log('\n=== Fixed Range Test (1 octave below to 2 octaves above) ===');
 

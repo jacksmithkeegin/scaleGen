@@ -1,5 +1,5 @@
-const { findScale } = require('./dissonance.js');
-const { generateOvertonesArrays } = require('./overtoneGen.js');
+const { findScale } = require('../dissonance.js');
+const { generateOvertonesArrays } = require('../overtoneGen.js');
 
 // --- Configuration ---
 const fundamental = 261.63; // C4

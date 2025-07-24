@@ -1,5 +1,5 @@
-const { findScale } = require('./dissonance.js');
-const { generateOvertonesArrays } = require('./overtoneGen.js');
+const { findScale } = require('../dissonance.js');
+const { generateOvertonesArrays } = require('../overtoneGen.js');
 
 // --- Configuration ---
 const fundamental = 440; // A4
@@ -95,3 +95,6 @@ refFreq.forEach((f, index) => {
     
     console.log(`${partialNum} | ${freq} | ${amp} | ${ratio}`);
 });
+
+
+console.log('\n--- Scale Test Complete ---');

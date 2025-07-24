@@ -176,7 +176,8 @@ fs.writeFileSync('dissonance_chart_with_minima.html', chartHtml);
 console.log('Dissonance chart with minima generated in dissonance_chart_with_minima.html, including overtone series plot.');
 
 // 5b. Print overtone series comparison chart to console
-console.log('\n--- Overtone Series Comparison ---');
+console.log('
+--- Overtone Series Comparison ---');
 console.log('Idx | Swept Freq | Swept Amp | Ref Freq   | Ref Amp');
 console.log('-----------------------------------------------------');
 for (let i = 0; i < Math.max(freq.length, refFreq.length); i++) {
@@ -188,7 +189,8 @@ for (let i = 0; i < Math.max(freq.length, refFreq.length); i++) {
 }
 
 // 6. Compare found minima with expected minima
-console.log('\n--- Comparison of Found Minima to Expected Minima ---');
+console.log('
+--- Comparison of Found Minima to Expected Minima ---');
 console.log('Found Interval | Expected Interval | Name                    | Difference');
 console.log('--------------------------------------------------------------------------');
 
