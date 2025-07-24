@@ -104,13 +104,14 @@ function findLocalMinima(alphas, dissonances) {
  * @param {number} increment - Increment for alpha in the refined search.
  * @param {number[]} [refFreq] - Optional array of reference frequencies (Hz) to hold fixed.
  * @param {number[]} [refAmp] - Optional array of reference amplitudes for the reference frequencies.
+ * @param {number} [offset=0] - Optional offset to apply to the search range.
  * @returns {{minimum: {alpha: number, dissonance: number}, curve: {alpha: number, dissonance: number}[]}[]} Array of objects containing refined minimum and its curve.
  */
-function refineMinimaAndGetCurves(freq, amp, coarseMinima, searchWidth, increment, refFreq = null, refAmp = null) {
+function refineMinimaAndGetCurves(freq, amp, coarseMinima, searchWidth, increment, refFreq = null, refAmp = null, offset = 0) {
     const refinedResults = [];
     for (const coarseMin of coarseMinima) {
-        const start = coarseMin.alpha - searchWidth;
-        const end = coarseMin.alpha + searchWidth;
+        const start = coarseMin.alpha - searchWidth + offset;
+        const end = coarseMin.alpha + searchWidth + offset;
         const { alphas, dissonances } = generateDissonanceCurve(freq, amp, start, end, increment, refFreq, refAmp);
         
         let minDissonance = Infinity;
@@ -138,11 +139,180 @@ function refineMinimaAndGetCurves(freq, amp, coarseMinima, searchWidth, incremen
 }
 
 /**
+ * Find a scale of notes based on dissonance minima within specified constraints.
+ * @param {number[]} freq - Array of base frequencies (Hz) for the swept set.
+ * @param {number[]} amp - Array of amplitudes for each frequency in the swept set.
+ * @param {number} minNotes - Minimum number of notes required in the scale.
+ * @param {number} minRatio - Minimum ratio between successive frequencies.
+ * @param {number} maxNotes - Maximum number of notes allowed in the scale.
+ * @param {number[]} refFreq - Array of reference frequencies (Hz) to hold fixed.
+ * @param {number[]} refAmp - Array of reference amplitudes for the reference frequencies.
+ * @returns {{frequency: number, ratio: number, dissonance: number}[]} Array of scale notes sorted by frequency.
+ */
+function findScale(freq, amp, minNotes, minRatio, maxNotes, refFreq, refAmp) {
+    // Search parameters - covering two octaves (1 octave above and below)
+    const rangeStart = 0.5;  // One octave below
+    const rangeEnd = 2.0;    // One octave above
+    const coarseIncrement = 0.005;
+    const fineSearchWidth = 0.01;
+    const fineIncrement = 0.0005;
+    
+    // Generate coarse dissonance curve
+    const { alphas, dissonances } = generateDissonanceCurve(freq, amp, rangeStart, rangeEnd, coarseIncrement, refFreq, refAmp);
+    
+    // Find local minima
+    const coarseMinima = findLocalMinima(alphas, dissonances);
+    
+    // Refine minima
+    const refinedResults = refineMinimaAndGetCurves(freq, amp, coarseMinima, fineSearchWidth, fineIncrement, refFreq, refAmp);
+    const refinedMinima = refinedResults.map(r => r.minimum);
+    
+    // Sort minima by dissonance (lowest first)
+    refinedMinima.sort((a, b) => a.dissonance - b.dissonance);
+    
+    // Convert to scale notes with frequencies
+    const fundamental = refFreq[0]; // Assume first reference frequency is the fundamental
+    const candidateNotes = refinedMinima.map(min => ({
+        frequency: fundamental * min.alpha,
+        ratio: min.alpha,
+        dissonance: min.dissonance
+    }));
+    
+    // Sort by frequency for ratio filtering
+    candidateNotes.sort((a, b) => a.frequency - b.frequency);
+    
+    // Filter by minimum ratio constraint, but ensure minimum notes
+    const selectedNotes = [];
+    let lastFreq = 0;
+    
+    for (const note of candidateNotes) {
+        const ratio = lastFreq > 0 ? note.frequency / lastFreq : Infinity;
+        
+        if (selectedNotes.length < minNotes || ratio >= minRatio) {
+            selectedNotes.push(note);
+            lastFreq = note.frequency;
+            
+            if (selectedNotes.length >= maxNotes) {
+                break;
+            }
+        }
+    }
+    
+    // If we don't have enough notes, add more from the best remaining candidates
+    if (selectedNotes.length < minNotes) {
+        const remaining = candidateNotes.filter(note => !selectedNotes.includes(note));
+        remaining.sort((a, b) => a.dissonance - b.dissonance);
+        
+        while (selectedNotes.length < minNotes && remaining.length > 0) {
+            selectedNotes.push(remaining.shift());
+        }
+        
+        // Re-sort by frequency after adding notes
+        selectedNotes.sort((a, b) => a.frequency - b.frequency);
+    }
+    
+    return selectedNotes;
+}
+
+/**
+ * Optimize scales by evaluating dissonance of each note against all other notes across all scales.
+ * Selects the best notes for each overtone series based on combined dissonance scores.
+ * @param {Array<Array<{frequency: number, ratio: number, dissonance: number}>>} scales - Array of scales, one for each overtone series.
+ * @param {Array<{freq: number[], amp: number[]}>} overtoneSeries - Array of overtone series objects corresponding to the scales.
+ * @param {number} targetNotes - Target number of notes to select for each scale.
+ * @returns {Array<Array<{frequency: number, ratio: number, dissonance: number, combinedDissonance: number}>>} Optimized scales with combined dissonance scores.
+ */
+function optimizeScalesCombined(scales, overtoneSeries, targetNotes) {
+    if (!Array.isArray(scales) || scales.length === 0) {
+        throw new Error('scales must be a non-empty array');
+    }
+    
+    if (!Array.isArray(overtoneSeries) || overtoneSeries.length !== scales.length) {
+        throw new Error('overtoneSeries must be an array with the same length as scales');
+    }
+    
+    // First, collect all notes from all scales with their source information
+    const allNotes = [];
+    scales.forEach((scale, scaleIndex) => {
+        scale.forEach(note => {
+            allNotes.push({
+                ...note,
+                scaleIndex: scaleIndex,
+                sourceOvertones: overtoneSeries[scaleIndex]
+            });
+        });
+    });
+    
+    console.log(`\nOptimizing ${scales.length} scales with ${allNotes.length} total candidate notes...`);
+    
+    // Calculate combined dissonance for each note against all other notes
+    const notesWithCombinedScores = allNotes.map((note, noteIndex) => {
+        let totalDissonance = 0;
+        let comparisonCount = 0;
+        
+        // Compare this note against all other notes
+        allNotes.forEach((otherNote, otherIndex) => {
+            if (noteIndex === otherIndex) return; // Don't compare note to itself
+            
+            // Create frequency and amplitude arrays for dissonance calculation
+            // Note's own overtone series + the other note treated as a fundamental
+            const noteFreqs = note.sourceOvertones.freq;
+            const noteAmps = note.sourceOvertones.amp;
+            const otherFreqs = [otherNote.frequency];
+            const otherAmps = [1.0]; // Treat other note as single fundamental with amplitude 1
+            
+            // Combine the two sets
+            const combinedFreqs = [...noteFreqs, ...otherFreqs];
+            const combinedAmps = [...noteAmps, ...otherAmps];
+            
+            // Calculate dissonance for this combination
+            const pairDissonance = dissmeasure(combinedFreqs, combinedAmps);
+            totalDissonance += pairDissonance;
+            comparisonCount++;
+        });
+        
+        const averageDissonance = comparisonCount > 0 ? totalDissonance / comparisonCount : note.dissonance;
+        
+        return {
+            ...note,
+            combinedDissonance: averageDissonance
+        };
+    });
+    
+    // Group notes back by their original scale
+    const notesByScale = Array(scales.length).fill(null).map(() => []);
+    notesWithCombinedScores.forEach(note => {
+        notesByScale[note.scaleIndex].push(note);
+    });
+    
+    // For each scale, select the best notes based on combined dissonance
+    const optimizedScales = notesByScale.map((scaleNotes, scaleIndex) => {
+        // Sort by combined dissonance (lowest first)
+        scaleNotes.sort((a, b) => a.combinedDissonance - b.combinedDissonance);
+        
+        // Take the target number of notes (or all available if fewer)
+        const selectedNotes = scaleNotes.slice(0, Math.min(targetNotes, scaleNotes.length));
+        
+        // Remove the temporary properties and sort by frequency
+        const cleanedNotes = selectedNotes.map(({ scaleIndex, sourceOvertones, ...note }) => note);
+        cleanedNotes.sort((a, b) => a.frequency - b.frequency);
+        
+        console.log(`  Scale ${scaleIndex + 1}: Selected ${cleanedNotes.length}/${scaleNotes.length} notes (target: ${targetNotes})`);
+        
+        return cleanedNotes;
+    });
+    
+    return optimizedScales;
+}
+
+/**
  * Exported functions for dissonance analysis.
  */
 module.exports = { 
     dissmeasure,
     generateDissonanceCurve,
     findLocalMinima,
-    refineMinimaAndGetCurves
+    refineMinimaAndGetCurves,
+    findScale,
+    optimizeScalesCombined
 };
